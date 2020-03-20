@@ -13,5 +13,7 @@
 - 有序性 : 程序的顺序执行.(JVM的编译优化 - OrderlyDemo)
 
 volatile - 禁用缓存, 可见 - VolatileDemo
+
 happen-before - 可见, 有序 - HappenBeforeDemo
+
 锁 - 原子性 - atomicity包下   
