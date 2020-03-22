@@ -116,3 +116,117 @@ class Account {
 ```
 
 这段代码会造成死锁吗? 答案是并不会, 但是会造成活锁, 线程相互谦让导致谁也获取不到锁
+
+#### Condition
+
+Java SDK中的lock与synchronized的不同是提供了三个可以可以中断死锁的特性(响应中断, 支持超时和非阻塞获取锁), 
+而Condition与synchronized的不同在于Condition支持多条件变量, synchronized只支持一个条件变量.
+
+##### 两个条件实现阻塞队列
+
+这个两个条件就是出队队列不可以为空, 入队队列不能满, 前面已经站试过了.
+```
+
+public class BlockedQueue<T>{
+  final Lock lock =
+    new ReentrantLock();
+  // 条件变量：队列不满  
+  final Condition notFull =
+    lock.newCondition();
+  // 条件变量：队列不空  
+  final Condition notEmpty =
+    lock.newCondition();
+
+  // 入队
+  void enq(T x) {
+    lock.lock();
+    try {
+      while (队列已满){
+        // 等待队列不满
+        notFull.await();
+      }  
+      // 省略入队操作...
+      //入队后,通知可出队
+      notEmpty.signal();
+    }finally {
+      lock.unlock();
+    }
+  }
+  // 出队
+  void deq(){
+    lock.lock();
+    try {
+      while (队列已空){
+        // 等待队列不空
+        notEmpty.await();
+      }  
+      // 省略出队操作...
+      //出队后，通知可入队
+      notFull.signal();
+    }finally {
+      lock.unlock();
+    }  
+  }
+}
+```
+
+注意的是不要把Lock/Condition和隐式锁的等待通知搞混, Lock/condition的就是await(), signal()和signalAll(),
+隐式锁就是wait(), notify()和notifyAll(). 一旦混用, 程序就彻底完了.
+
+###### 同步和异步
+
+同步的概念就是调用方需要等待被调用方返回的结果, 异步的概念就是调用方不需要等待结果.
+
+异步的两种实现方式:
+- 在主线程中声明子线程, 在子线程中执行方法调用, 这就是异步调用
+- 方法实现的之后, 创建一个线程执行主要逻辑, 主线程直接return, 这就是异步方法(我觉得赢了happen-Before的start()) 
+
+在TCP层面, 发送完RPC请求之后, 线程是不会等待RPC请求返回的结果的, 但是工作中的RPC大多都是同步的, 原因就是框架将RPC
+调用的异步转化为同步, 这个转化就是利用了Lock/Condition.
+
+```
+
+// 创建锁与条件变量
+private final Lock lock 
+    = new ReentrantLock();
+private final Condition done 
+    = lock.newCondition();
+
+// 调用方通过该方法等待结果
+Object get(int timeout){
+  long start = System.nanoTime();
+  lock.lock();
+  try {
+  while (!isDone()) {
+    done.await(timeout);
+      long cur=System.nanoTime();
+    if (isDone() || 
+          cur-start > timeout){
+      break;
+    }
+  }
+  } finally {
+  lock.unlock();
+  }
+  if (!isDone()) {
+  throw new TimeoutException();
+  }
+  return returnFromResponse();
+}
+// RPC结果是否已经返回
+boolean isDone() {
+  return response != null;
+}
+// RPC结果返回时调用该方法   
+private void doReceived(Response res) {
+  lock.lock();
+  try {
+    response = res;
+    if (done != null) {
+      done.signalAll();
+    }
+  } finally {
+    lock.unlock();
+  }
+}
+```
