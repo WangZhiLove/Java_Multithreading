@@ -293,6 +293,101 @@ CurrentLimiter.java类中可以看到.
 
 管程和信号量的区别在于: 管程只支持一个线程进入临界区, 而信号量模型则支持多个线程同时进入临界区.
 
+#### 读写锁实现缓存
+
+##### 读写锁
+
+Java SDK中的工具类, 更多是为了 分场景优化性能, 提升易用性.
+
+ReadWriteLock读写锁, 遵循三个基本原则:
+- 允许多个线程同时读共享变量
+- 只允许一个线程写共享变量
+- 当有线程写共享变量的时候, 阻塞其他读共享变量的线程
+
+读写锁和互斥锁的区别在于读写锁允许多个线程同时读共享变量, 但是读锁和写锁之间是互斥的.
+
+##### 实现缓存
+
+ReadWriteCache.java实现了缓存的读和写, 缓存的初始化如何实现?
+
+缓存的初始化有两种方式:
+- 一次性写入
+- 按需写入
+
+一次性写入适合的情况就是数据量少的情况, 如果数据量非常大, 那就最好使用按需写入, 需要用到的时候
+检查缓存中有没有值, 有值, 直接读; 没有值, 先写后读. - ReadWriteCache.java中的getInit()方法.
+
+##### 读写锁的升级和降级
+
+这里要记住的是读写锁只存在降级, 不存在升级.
+```
+
+//读缓存
+r.lock();         ①
+try {
+  v = m.get(key); ②
+  if (v == null) {
+    w.lock();
+    try {
+      //再次验证并更新缓存
+      //省略详细代码
+    } finally{
+      w.unlock();
+    }
+  }
+} finally{
+  r.unlock();     ③
+}
+```
+像这种锁的升级是不允许的, 会造成写锁永久等待, 进而倒是其他线程全部阻塞. 但锁的降级确是允许的
+```
+
+class CachedData {
+  Object data;
+  volatile boolean cacheValid;
+  final ReadWriteLock rwl =
+    new ReentrantReadWriteLock();
+  // 读锁  
+  final Lock r = rwl.readLock();
+  //写锁
+  final Lock w = rwl.writeLock();
+  
+  void processCachedData() {
+    // 获取读锁
+    r.lock();
+    if (!cacheValid) {
+      // 释放读锁，因为不允许读锁的升级
+      r.unlock();
+      // 获取写锁
+      w.lock();
+      try {
+        // 再次检查状态  
+        if (!cacheValid) {
+          data = ...
+          cacheValid = true;
+        }
+        // 释放写锁前，降级为读锁
+        // 降级是可以的
+        r.lock(); ①
+      } finally {
+        // 释放写锁
+        w.unlock(); 
+      }
+    }
+    // 此处仍然持有读锁
+    try {use(data);} 
+    finally {r.unlock();}
+  }
+}
+```
+
+上面的缓存初始化就完成了, 但是还有一点, 就是缓存与数据源的同步问题, 同样两种方案:
+- 在数据源修改的时候同步到缓存
+- 超时机制, 规定时长, 超出时间去同步.
+
+还有注意读写锁中的读锁是不支持条件变量的, 写锁支持条件变量, 也就是不能用读锁去newCondition, 
+会直接抛出异常. 但是可以用写锁去newCondition, 原因是读写锁的读锁是不会产生互斥的.
+
 
 
 
