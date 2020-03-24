@@ -388,6 +388,71 @@ class CachedData {
 还有注意读写锁中的读锁是不支持条件变量的, 写锁支持条件变量, 也就是不能用读锁去newCondition, 
 会直接抛出异常. 但是可以用写锁去newCondition, 原因是读写锁的读锁是不会产生互斥的.
 
+#### StampedLock - 读写锁的又一种实现
+
+ReadWriteLock读写锁的速度已经很快了, 但是在Java8中, 又加了一个StampedLock, 也是一种读写锁,
+速度优于ReadWriteLock, 如何实现呢? StampedLock是将读锁分为了两种: 乐观读与悲观读锁. 悲观读锁
+和写锁与ReadWriteLock的读写锁语义基本相同, 不同之处在于StampedLock的写锁与悲观读锁加锁成功后
+返回一个stamp, 解锁的时候需要传这个stamp. 使用方面的加锁与释放锁如类 StampedLockDemo.java.
+
+StampedLock性能好的地方在于ReadWriteLock在加了读锁之后, 所有的写锁都会阻塞.但是stampedLock的
+乐观读会允许一个线程获取写锁, 也就是并不是所有的写锁都会阻塞.
+
+要说的是乐观读是无锁操作, tryOptimisticRead()方法就是获取stamp, 也就是乐观读. 要验证stamp有没有修改,
+需要用到validate(stamp)方法.
+
+##### MySQL的乐观锁
+
+MySQL的乐观锁如何实现的呢? MySQL就是加了个version字段, 每次在进行读的时候讲version字段查出来进行返回,
+在进行写的时候讲version字段加1, 然后在修改更新的时候用version字段做个校验.
+
+##### StampedLock使用的注意事项
+
+- StampedLock是ReadWriteLock的子集
+- StampedLock不支持重入
+- StampedLock的写锁和悲观读锁不支持条件变量, 不能响应中断
+- 使用 StampedLock 一定不要调用中断操作，如果需要支持中断功能，一定使用可中断的悲观读锁 
+readLockInterruptibly() 和写锁 writeLockInterruptibly()。
+
+##### StampedLock使用模板
+
+读模板
+
+```
+
+final StampedLock sl = 
+  new StampedLock();
+
+// 乐观读
+long stamp = 
+  sl.tryOptimisticRead();
+// 读入方法局部变量
+......
+// 校验stamp
+if (!sl.validate(stamp)){
+  // 升级为悲观读锁
+  stamp = sl.readLock();
+  try {
+    // 读入方法局部变量
+    .....
+  } finally {
+    //释放悲观读锁
+    sl.unlockRead(stamp);
+  }
+}
+//使用方法局部变量执行业务操作
+```
+
+写模板
+```
+long stamp = sl.writeLock();
+try {
+  // 写共享变量
+  ......
+} finally {
+  sl.unlockWrite(stamp);
+}
+```
 
 
 
