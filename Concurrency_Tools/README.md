@@ -454,6 +454,163 @@ try {
 }
 ```
 
+#### CountDownLatch和CyclicBarrier: 多线程步调一致
+
+CountDownLatch的使用场景是一个线程等待多个线程的情况.
+
+CyclicBarrier的使用场景是多个线程互相等待的情况.
+
+也就是说CountDownLatch是一个线程等待其他多个线程都执行完成, 才开始执行.
+
+CyclicBarrier是多个线程互相等待, 就是多个线程都执行完才向下执行.看着效果相同, 使用场景还是有区别的.
+
+##### 对账系统案例
+
+对账系统的逻辑是先查询订单, 再查询派送单, 然后对比差异, 将差异保存到差异表.代码如下:
+
+```
+
+while(存在未对账订单){
+  // 查询未对账订单
+  pos = getPOrders();
+  // 查询派送单
+  dos = getDOrders();
+  // 执行对账操作
+  diff = check(pos, dos);
+  // 差异写入差异库
+  save(diff);
+} 
+```
+就目前来看, 这一系列的操作都是串行的, 优化的空间有很大, 如何做呢? 首先将操作进行分析, 看看各个操作
+之间的关系, 查询未对账订单金额查询派送单是没有先后顺序的, 可以并行, 对账操作必须在获取未对账订单和派送单
+之后, 对账操作和写入差异库必须是串行的.所以可以用多线程来达到并行的目的.
+```
+while(存在未对账订单){
+    Thread t1 = new Thread(() -> {
+        // 查询未对账订单
+        pos = getPOrders();
+    });
+    Thread t2 = new Thread(() -> {
+        // 查询派送单
+        dos = getDOrders();
+    });
+    t1.start();
+    t2.start();
+    // 等待t1和t2结束
+    t1.join();
+    t2.join();
+    // 执行对账操作
+    diff = check(pos, dos);
+    // 差异写入差异库
+    save(diff);
+}
+```
+这样就可以了, 但是在while循环里面每次都要创建线程, 这个是很耗资源的, 用线程池的话应该会更好些.
+但是用线程池的话join()操作就没办法使用了, 那如何实现两个线程执行完之后再执行对账操作呢?
+```
+// 创建两个线程的线程池
+Executor executor = Executors.newFixedThreadPool(2);
+while(存在未对账订单){
+   exector.execute(() -> {
+        // 查询未对账订单
+        pos = getPOrders();
+    });
+    executor.execute(() -> {
+        // 查询派送单
+        dos = getDOrders();
+    });
+    // 如何来等待两个线程结束
+    ********************
+    // 执行对账操作
+    diff = check(pos, dos);
+    // 差异写入差异库
+    save(diff);
+}
+```
+
+##### CountDownLatch实现线程池一个线程等待多线程
+
+这里的目的是一个线程等待多个线程完成, 那可以使用CountDownLatch, 那如何使用?
+```
+// 创建两个线程的线程池
+Executor executor = Executors.newFixedThreadPool(2);
+// 创建CountDownLatch, 计数器初始化是2, 也就是等待两个线程
+CountDownLatch cdl = new CountDownLatch(2);
+while(存在未对账订单){
+   exector.execute(() -> {
+        // 查询未对账订单
+        pos = getPOrders();
+        cdl.countDown();
+    });
+    executor.execute(() -> {
+        // 查询派送单
+        dos = getDOrders();
+        cdl.countDown();
+    });
+    // 等待两个线程执行结束
+    cdl.await();
+    // 执行对账操作
+    diff = check(pos, dos);
+    // 差异写入差异库
+    save(diff);
+}
+```
+countDown()方法来使得计数器减一, await()方法是来实现对计数器等于0的等待.现在的程序
+性能相对于之前更好了些. 但是还有可优化的地方, 那就是查询订单和对账操作之间是串行的, 也就是
+查询订单的时候不能对账, 对账的时候不能查询订单, 这两个操作其实是可以并行的, 也就是第一次查询完订单
+之后, 在对账期间, 可以查询接下来的订单, 这就有点像生产者和消费者了, 查询订单是生产者, 对账
+操作是消费者, 那生产者和消费者处理就是队列呗.那使用队列的话如何能保证两个查询订单的操作同时完成呢?
+这里就要用到CyclicBarrier来实现线程同步了.                                        
+
+##### CyclicBarrier来实现线程相互等待同步
+
+使用 CyclicBarrier 来实现多个线程之间相互等待, 同步完成. 使用 CyclicBarrier 的时候需要传递
+一个回调函数.并且  CyclicBarrier 计数器拥有重置的功能, 当减为0的时候, 会重置为设置的值.
+```
+// 订单队列
+Vector<P> pos;
+// 派送队列
+Vector<D> dos;
+// 一个线程池, 执行回调函数的线程池, 因为指向回调函数不会重新开一个线程.
+Executor executor = Executors.new FixedThreadPool(1);
+// 创建同步对象, 第一个参数是计数器, 第二个参数是回调函数
+final CycliBarrier cycliBarrier = new CycliBarrier(2, () -> {
+    executor.execute(() -> check());
+});
+void check() {
+    P p = pos.remove(0);
+    D d = dos.remove(0);
+    // 执行对账操作
+    diff = check(p, d);
+    // 差异写入差异库
+    save(diff);
+} 
+void checkAll() {
+    // 查询订单库
+    Thread t1 = new Thraed(() - > {
+        // 入队
+        pos.add(getPOrders());
+        // 等待
+        cycliBarrier.await();
+    });
+    // 查询派送单
+    Thread t2 = new Thraed(() - > {
+        // 入队
+        dos.add(getDOrders());
+        // 等待
+        cycliBarrier.await();
+    });
+    t1.start();
+    t2.start();
+}
+```
+
+由于是单线程执行对账操作, 所以整个流程下来是没问题, 多线程的话可能就会存在很大的问题, 需要
+将方法加锁.
+
+使用CountDownLatch可以保证一个线程等待多个线程的场景.
+
+CyclicBarrier可以保证线程之间相互等待的场景.并且该计数器是可以重置的, 这个很重要.
 
 
 
