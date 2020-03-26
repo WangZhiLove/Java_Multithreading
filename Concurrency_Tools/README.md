@@ -1,6 +1,6 @@
 ## 并发工具类的使用
 
-#### Lock和Condition的使用
+### Lock和Condition的使用
 
 Java SDK的核心就是对管程的实现, 而对管程的实现就依赖于Lock和Condition, Lock负责互斥, 
 Condition负责同步.
@@ -8,7 +8,7 @@ Condition负责同步.
 Java中的synchronized就是对管程的实现, 为什么还需要Lock和Condition呢, 因为synchronized获取不到
 锁的时候会阻塞, 这个时候的线程啥也干不了, 发生死锁的时候没有办法处理, 但是Lock可以处理死锁的情况.
 
-##### Lock对死锁的处理
+#### Lock对死锁的处理
 
 前面对于死锁产生的原因有三种做了分析, 处理方法就是根据原因来得到的, 而Lock对于死锁的处理是利用了
 不可抢占资源这点, 给出了三种方案:
@@ -22,11 +22,11 @@ Java中的synchronized就是对管程的实现, 为什么还需要Lock和Conditi
 - 支持超时的API: boolean tryLock(long time, TimeUnit unit) throws InterruptedException;
 - 支持非阻塞获取锁的API: boolean tryLock();
 
-##### Lock如何保证可见性的
+#### Lock如何保证可见性的
 
 详细的讲解查看LockDemo.java
 
-##### 什么是可重入锁
+#### 什么是可重入锁
 
 创建Lock的使用的是ReentrantLock, ReentrantLock就是可重入锁, 意思就是线程可以重复获取同一把锁, 当然这里的
 线程指的是同一个线程, 如下:
@@ -63,7 +63,7 @@ class X {
 
 可重入函数是什么呢? 可重入函数就指的是多个线程同时调用该函数都会得到一个正确的结果, 也就是线程安全.
 
-##### 公平锁和非公平锁
+#### 公平锁和非公平锁
 
 ```
 
@@ -81,7 +81,7 @@ public ReentrantLock(boolean fair){
 什么时候有用呢?    受到阻塞的线程会进入到等待队列中, 当条件满足需要唤醒线程的时候, 公平锁会唤醒等待时间最长的线程, 
 非公平锁是在当前有新的线程请求的时候就不会到等待队列中唤醒, 而是直接执行新的线程, 这样的话等待队列中的线程可能永远不会唤醒 
 
-##### 用锁的最佳实践
+#### 用锁的最佳实践
 
 - 永远只在更新对象成员变量的时候加锁
 - 永远只在获取对象成员变量的时候加锁
@@ -117,12 +117,12 @@ class Account {
 
 这段代码会造成死锁吗? 答案是并不会, 但是会造成活锁, 线程相互谦让导致谁也获取不到锁
 
-#### Condition
+### Condition
 
 Java SDK中的lock与synchronized的不同是提供了三个可以可以中断死锁的特性(响应中断, 支持超时和非阻塞获取锁), 
 而Condition与synchronized的不同在于Condition支持多条件变量, synchronized只支持一个条件变量.
 
-##### 两个条件实现阻塞队列
+#### 两个条件实现阻塞队列
 
 这个两个条件就是出队队列不可以为空, 入队队列不能满, 前面已经站试过了.
 ```
@@ -173,7 +173,7 @@ public class BlockedQueue<T>{
 注意的是不要把Lock/Condition和隐式锁的等待通知搞混, Lock/condition的就是await(), signal()和signalAll(),
 隐式锁就是wait(), notify()和notifyAll(). 一旦混用, 程序就彻底完了.
 
-###### 同步和异步
+##### 同步和异步
 
 同步的概念就是调用方需要等待被调用方返回的结果, 异步的概念就是调用方不需要等待结果.
 
@@ -231,9 +231,9 @@ private void doReceived(Response res) {
 }
 ```
 
-#### 信号量实现限流器
+### 信号量实现限流器
 
-##### 信号量模型
+#### 信号量模型
 
 Semaphore, 信号量, 信号量是在管程之前提出的, 比管程的历史还要久一点, 在管程出现之前, 并发问题就一直是使用
 信号量来解决的.
@@ -275,7 +275,7 @@ class Semaphore{
 信号量模型里面, down()和up()最早被称为PV操作, 所以信号量模型最早也叫做PV原语. 在Java SDK中,
 down()和up()对应的是acquire()和release(), 使用信号量模型实现计数器 - SemaphoreModelCount
 
-##### 使用信号量模型实现限流器
+#### 使用信号量模型实现限流器
 
 SemaphoreModelCount中的案例是使用信号量模型来实现互斥锁的功能, 如果仅仅是这些功能, 那个Lock
 有什么区别呢? 所以信号量模型的特别之处在于信号量模型**允许多个线程访问同一个临界区**, 最常见的就是
@@ -293,9 +293,9 @@ CurrentLimiter.java类中可以看到.
 
 管程和信号量的区别在于: 管程只支持一个线程进入临界区, 而信号量模型则支持多个线程同时进入临界区.
 
-#### 读写锁实现缓存
+### 读写锁实现缓存
 
-##### 读写锁
+#### 读写锁
 
 Java SDK中的工具类, 更多是为了 分场景优化性能, 提升易用性.
 
@@ -306,7 +306,7 @@ ReadWriteLock读写锁, 遵循三个基本原则:
 
 读写锁和互斥锁的区别在于读写锁允许多个线程同时读共享变量, 但是读锁和写锁之间是互斥的.
 
-##### 实现缓存
+#### 实现缓存
 
 ReadWriteCache.java实现了缓存的读和写, 缓存的初始化如何实现?
 
@@ -317,7 +317,7 @@ ReadWriteCache.java实现了缓存的读和写, 缓存的初始化如何实现?
 一次性写入适合的情况就是数据量少的情况, 如果数据量非常大, 那就最好使用按需写入, 需要用到的时候
 检查缓存中有没有值, 有值, 直接读; 没有值, 先写后读. - ReadWriteCache.java中的getInit()方法.
 
-##### 读写锁的升级和降级
+#### 读写锁的升级和降级
 
 这里要记住的是读写锁只存在降级, 不存在升级.
 ```
@@ -388,7 +388,7 @@ class CachedData {
 还有注意读写锁中的读锁是不支持条件变量的, 写锁支持条件变量, 也就是不能用读锁去newCondition, 
 会直接抛出异常. 但是可以用写锁去newCondition, 原因是读写锁的读锁是不会产生互斥的.
 
-#### StampedLock - 读写锁的又一种实现
+### StampedLock - 读写锁的又一种实现
 
 ReadWriteLock读写锁的速度已经很快了, 但是在Java8中, 又加了一个StampedLock, 也是一种读写锁,
 速度优于ReadWriteLock, 如何实现呢? StampedLock是将读锁分为了两种: 乐观读与悲观读锁. 悲观读锁
@@ -401,12 +401,12 @@ StampedLock性能好的地方在于ReadWriteLock在加了读锁之后, 所有的
 要说的是乐观读是无锁操作, tryOptimisticRead()方法就是获取stamp, 也就是乐观读. 要验证stamp有没有修改,
 需要用到validate(stamp)方法.
 
-##### MySQL的乐观锁
+#### MySQL的乐观锁
 
 MySQL的乐观锁如何实现的呢? MySQL就是加了个version字段, 每次在进行读的时候讲version字段查出来进行返回,
 在进行写的时候讲version字段加1, 然后在修改更新的时候用version字段做个校验.
 
-##### StampedLock使用的注意事项
+#### StampedLock使用的注意事项
 
 - StampedLock是ReadWriteLock的子集
 - StampedLock不支持重入
@@ -414,7 +414,7 @@ MySQL的乐观锁如何实现的呢? MySQL就是加了个version字段, 每次�
 - 使用 StampedLock 一定不要调用中断操作，如果需要支持中断功能，一定使用可中断的悲观读锁 
 readLockInterruptibly() 和写锁 writeLockInterruptibly()。
 
-##### StampedLock使用模板
+#### StampedLock使用模板
 
 读模板
 
@@ -454,7 +454,7 @@ try {
 }
 ```
 
-#### CountDownLatch和CyclicBarrier: 多线程步调一致
+### CountDownLatch和CyclicBarrier: 多线程步调一致
 
 CountDownLatch的使用场景是一个线程等待多个线程的情况.
 
@@ -464,7 +464,7 @@ CyclicBarrier的使用场景是多个线程互相等待的情况.
 
 CyclicBarrier是多个线程互相等待, 就是多个线程都执行完才向下执行.看着效果相同, 使用场景还是有区别的.
 
-##### 对账系统案例
+#### 对账系统案例
 
 对账系统的逻辑是先查询订单, 再查询派送单, 然后对比差异, 将差异保存到差异表.代码如下:
 
@@ -528,7 +528,7 @@ while(存在未对账订单){
 }
 ```
 
-##### CountDownLatch实现线程池一个线程等待多线程
+#### CountDownLatch实现线程池一个线程等待多线程
 
 这里的目的是一个线程等待多个线程完成, 那可以使用CountDownLatch, 那如何使用?
 ```
@@ -562,7 +562,7 @@ countDown()方法来使得计数器减一, await()方法是来实现对计数器
 操作是消费者, 那生产者和消费者处理就是队列呗.那使用队列的话如何能保证两个查询订单的操作同时完成呢?
 这里就要用到CyclicBarrier来实现线程同步了.                                        
 
-##### CyclicBarrier来实现线程相互等待同步
+#### CyclicBarrier来实现线程相互等待同步
 
 使用 CyclicBarrier 来实现多个线程之间相互等待, 同步完成. 使用 CyclicBarrier 的时候需要传递
 一个回调函数.并且  CyclicBarrier 计数器拥有重置的功能, 当减为0的时候, 会重置为设置的值.
@@ -612,6 +612,113 @@ void checkAll() {
 
 CyclicBarrier可以保证线程之间相互等待的场景.并且该计数器是可以重置的, 这个很重要.
 
+### 并发容器注意事项
+
+#### 同步容器及其注意事项
+
+在1.5之前提供了线程安全的容器, 性能很差. 1.5之后才做了优化.
+
+首先我们想象如何将ArrayList编程同步容器. 如类: SafeArrayList
+
+按照例子中的所示, 那是否所有非线程安全的容器都可以这么做呢? 但是是肯定的!!!
+```
+Collections.synchronizedList(new ArrayList<>());
+Collections.synchronizedMap(new HashMap<>());
+Collections.synchronizedSet(new HashSet<>());
+```
+
+**迭代器遍历集合的坑:**
+```
+List list = Collections.synchronizedList(new ArrayList<>());
+Iterator i = list.iterator();
+while(i.hasNext()) {
+    foo(i.next());
+}
+```
+上面的代码就有可能存在并发问题, 出现问题的行数就是foo(i,next())这一行, 这个组合操作
+不具备原子性.所以说**组合操作一定要注意静态条件问题**. 那如何修改呢? 只要在遍历的时候
+加锁, 锁住当前对象就好.
+```
+List list = Collections.synchronizedList(new ArrayList<>());
+synchronized(list) {
+    Iterator i = list.iterator();
+    while(i.hasNext()) {
+        foo(i.next());
+    }
+}
+```
+这些都是通过添加synchronized来实现线程安全的, 也就叫同步容器, 同时提供的同步容器还有
+Vector, Stack, HashTable都是基于synchronized实现的, 遍历的时候要加锁保证互斥.
+
+#### 并发容器
+
+Java5之后提供了并发容器带来了更高的性能:
+
+![concurrent_container](./image/concurrent_container.png)
+
+并发容器包含了四大类: List, Set, Map, Queue.
+
+##### List
+
+List并发容器只有一个实现: CopyOnWriteArrayList. CopyOnWrite的意思是写的时候复制
+一份共享变量来进行写, 读的时候无锁.
+
+CopyOnWriteArrayList的实现原理是: 内部维护了一个数组array, 读的时候都是基于原数组array来进行读的,
+当出现写操作的时候, 会复制一份数组出来, 在新数组上进行写操作, 当写完之后让array指向新数组就可以了(应该
+是读操作完成之后才进行这个操作).也就是说遍历操作都是基于原数组, 写操作都是基于新数组.
+
+两个注意事项:
+- CopyOnWriteArrayList使用于读多写少的场景, 支持短暂的读写不一致, 因为新写的元素不会立刻被读取到.
+- 在遍历的时候使用迭代器不支持增删操作, 因为迭代器遍历的仅仅是一个快照, 对快照进行增删是没有意义的.
+
+##### Map
+
+Map的实现有两个:
+- ConcurrentHashMap, key是无序的
+- ConcurrentSkipListMap, key是有序的
+
+注意的是两个并发容器都不支持key和value为null, 如果为null, 会抛出异常NullPointerException.map支不支持
+null如下图所示:
+
+![map](./image/map.png)
+
+SkipList本身就是一种数据结构, 跳表, 他的增删查的平均时间复杂度是O(log n ), 如果在并发极高的情况下, 
+ConcurrentHashMap还不能满足你, 就是用ConcrrentSkipListMap.
+
+HashMap1.8之前(数组+链表)的put操作可能会导致CPU飙到100%, 原因是出现了死循环? 为什么? 因为在1.8之前, 
+map的put操作会进行扩容, 扩容的时候会将原数据进行转移, 转移的时候用的头插法, 会造成链表反转, 这就有可能出现
+死循环.
+
+1.8之后的Map(链表+红黑树), 在发生hash碰撞的时候不会采用头插法插入, 而是直接插入到链表的尾部, 不会出现还表
+避免了死循环的问题.但是在插入两个hash值相同的元素的情况下并发, 就有可能出现数据覆盖的问题.
+
+HashMap线程不安全就体现在:
+- 1.8之前, 多线程环境下容易造成环链或数据丢失
+- 1.8之后, 所线程环境下会造成数据覆盖的问题.
+
+#### Set
+
+Set的两个实现CopyOnWriteArraySet和ConcurrentSkipListSet, 使用场景如前面的CopyOnWriteArrayList和
+ConcurrentSkipListMap.
+
+#### Queue
+
+Queue是最复杂的, 可以分为两个维度, 一个是阻塞和非阻塞; 另一个是单端和双端. 单端是队首出, 队尾进; 双端是两端
+都可以出, 可以进.并发容器中带Blocking的都是阻塞的, Queue标识的是单端,Deque的是双端.
+
+- 单端阻塞队列: 实现有 ArrayBlockingQueue, LinkedBlockingQueue, SynchronousQueue, LinkedTransferQueue,
+PriorityBlockingQueue 和 DelayQueue. 内部一般会持有一个队列, 这个队列可以是数组(ArrayBlockingQueue), 也可以是链表 
+(LinkedBlockingQueue), 甚至还可以不持有队列(SynchronousQueue), 此时入队操作一定要等待出队操作. LinkedTransferQueue
+融合了 LinkedBlockingQueue 和  SynchronousQueue, 性能更优于 LinkedBlockingQueue . PriorityBlockingQueue支持
+按照优先级出队. DelayQueue支持延时出队.
+- 双端阻塞队列: 实现是 LinkedBlockingDeque.
+- 单端非阻塞队列: 实现是 ConcurrentLinkedQueue
+- 单端阻塞队列: ConcurrentLinkedDeque
+
+使用队列需要注意队列是否有界(也就是内部的队列是否有容量限制), 一般不建议使用无界队列, 容易发生OOM, 上面只有  ArrayBlockingQueue
+和 LinkedBlockingQueue 是有界的. 使用其他的一定要注意OOM隐患.
+
+**清楚容器的特性, 选对容器很重要.**
 
 
 
