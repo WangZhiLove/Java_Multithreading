@@ -720,10 +720,184 @@ PriorityBlockingQueue 和 DelayQueue. 内部一般会持有一个队列, 这个�
 
 **清楚容器的特性, 选对容器很重要.**
 
+### 原子类 - 无锁工具
+
+```
+public class Test{
+    long count = 0;
+    void add10k() {
+        int idx = 0;
+        while(idx++ < 10000) {
+            count += 1;
+        }
+    }
+}
+```
+上面线程不安全体现在两个方面, 一个是count的可见性, 可以用volatile关键字 + Happen-Before解决, count += 1的原子性
+可以使用加互斥锁的方式来解决. Java SDK提供了原子类来解决这种的问题.使用AtomicLong来解决, 如类AtomicLongDemo, 里面
+用到了 accumulateAndGet 这个方法, 源码如下:
+```
+public final long accumulateAndGet(long x,
+                                       LongBinaryOperator accumulatorFunction) {
+    long prev, next;
+    do {
+        prev = get();
+        next = accumulatorFunction.applyAsLong(prev, x);
+    } while (!compareAndSet(prev, next));
+    return next;
+}
+```
+可以看到并没有加锁, 其中get()方法是获取当前的value值, value值被volatile修饰, 无锁的性能更优于加锁, 因为加锁和
+释放锁是很消耗资源的, 再加上如果获取不到锁的时候, 线程会阻塞, 线程的状态切换也是很消耗资源的.
+
+#### 无锁方案的原理
+
+从 accumulateAndGet 的源码中可以看到, 是使用了自旋来进行了 compareAndSet 的操作, 这个就是 CAS (Compare And Swap),
+使用代码来模拟一下 CAS 操作. - 类 AtomicLongDemo.java 中
+```
+/**
+ * 实现count + 1的操作
+ */
+void addOne() {
+    long oldValue;
+    long newValue;
+    do{
+        oldValue = count;
+        newValue = count + 1;
+    } while(oldValue != cas(oldValue, newValue));
+}
+
+/**
+ * CAS判断是否存在多线程count值被修改, 当前计算的值和内存中的值是否一样
+ * @param value
+ * @param newValue
+ * @return
+ */
+long cas(long value, long newValue) {
+    // 记录当前count值
+    long curValue = count;
+    // 判断当前count(内存)的计算时的值是否相同
+    if(curValue == value) {
+        count = newValue;
+    }
+    return curValue;
+}
+```
+重点在于while的循环条件前后, 执行到循环, 另一个线程修改了count值, 这就会导致 oldValue 和 curValue 的值
+不一样, while条件不满足, 自旋, 一直到相同为止. 但是这种无锁机制有一个隐藏的问题就是 ABA 问题, 也就是说当前
+线程执行到 while 的时候, 可能被两个线程修改了 count 值, 一个减一, 一个加一, 这种情况下CAS是检测不出来的.
+
+#### 解决ABA问题
+
+ABA问题已经清楚了, 在一定程度下, 这是可以忍受的, 当然也有解决方案, 那就是用乐观锁里面的version思想, 使用版本
+号的思想就可以解决这个问题.
+
+#### 原子类的概述
+
+原子类的思想就是用了CAS, Java SDK中的原子类可以分为5个类别:
+- 原子化的基本数据类型
+- 原子化的对象引用类型
+- 原子化数组
+- 原子化对象属性更新器
+- 原子化的累加器
+
+![atomic](./image/atomic.png)
 
 
+##### 原子化的基本数据类型
 
+相关的实现有三个:
+- AtomicLong
+- AtomicInteger
+- AtomicBoolean
 
+相关的方法有:
+```
+getAndIncrement() //原子化i++
+getAndDecrement() //原子化的i--
+incrementAndGet() //原子化的++i
+decrementAndGet() //原子化的--i
+//当前值+=delta，返回+=前的值
+getAndAdd(delta) 
+//当前值+=delta，返回+=后的值
+addAndGet(delta)
+//CAS操作，返回是否成功
+compareAndSet(expect, update)
+//以下四个方法
+//新值可以通过传入func函数来计算
+getAndUpdate(func)
+updateAndGet(func)
+getAndAccumulate(x,func)
+accumulateAndGet(x,func)
+```
+
+##### 原子化的对象引用类型
+
+实现有三个:
+- AtomicReference
+- AtomicStampedReference
+- AtomicMarkableReference
+
+提供的方法和原子化的基本数据类型基本一致, 不同的是 AtomicStampedReference 和 AtomicMarkableReference 解决
+了ABA问题,  AtomicStampedReference 就是增加了一个版本号:
+```
+boolean compareAndSet(
+  V expectedReference,
+  V newReference,
+  int expectedStamp,
+  int newStamp) 
+```
+AtomicMarkableReference是将版本号简化成为一个Boolean类型的值:
+```
+boolean compareAndSet(
+  V expectedReference,
+  V newReference,
+  boolean expectedMark,
+  boolean newMark)
+```
+
+##### 原子化数组
+
+相关实现有:
+- AtomicIntegerArray
+- AtomicLongArray
+- AtomicReferenceArray
+
+原子化更新数组里面的每一个参数, 与基本类型的区别在于加了一个数组的索引参数.
+
+##### 原子化对象属性更新器
+
+相关实现有:
+- AtomicIntegerFieldUpdate
+- AtomicLongFieldUpdate
+- AtomicReferenceFiledUpdate
+
+原子化更新对象的属性, 利用了反射机制. 创建更新器:
+```
+public static <U>
+AtomicXXXFieldUpdater<U> 
+newUpdater(Class<U> tclass, 
+  String fieldName)
+```
+对象的属性必须是volatile修饰的, 才能保证可见性, 否则在newUpdater的时候会抛出IllegalArgumentException运行异常.
+
+newUpdater的参数只有类信息, 那对象信息是在哪里传入的呢? 在原子操作的方法中传入
+```
+boolean compareAndSet(
+  T obj, 
+  int expect, 
+  int update)
+```
+
+##### 原子化的累加器
+
+实现有:
+- DoubleAccumulator
+- DoubleAdder
+- LongAccumulator
+- LongAdder
+
+这四个仅仅用来执行累加操作, 相对于基本类型速度更快, 不支持compareAndsSet()方法.
 
 
 
