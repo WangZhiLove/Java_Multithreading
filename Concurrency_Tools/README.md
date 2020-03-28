@@ -1102,5 +1102,197 @@ pool.submit(task2);
 pool.submit(task3);
 ```
 
+### 异步编程 - CompletableFuture
+
+多线程优化性能, 更多的是将串行操作变成并行操作, 而在转变的过程中, 必然伴随着异步.举个例子来说:
+```
+operatingA()
+operatingB()
+```
+操作A和操作B都是非常耗时的, 并且没有先后顺序, 优化变为并行:
+```
+new Thread(()->{operatingA();}).start();
+new Thraed(()->{operationB();}).start();
+```
+这样A和B就变为并行, 并且主线程不关心A和B啥时候执行完成, 这就是异步.**异步化是多线程优化性能
+的的核心基础**
+
+#### CompletableFuture
+
+CompletableFuture就是Java提供的异步化编程, 用前面的烧水煮茶的案例, 优化为三个线程, 一个线程
+是洗水壶和烧水, 这个是并行操作, 一个是洗茶壶, 洗茶杯, 这个是并行, 最后一个是取茶叶, 取热水, 煮茶,
+这个是汇聚操作, 并且线程3依赖于线程1和线程2的完成.如何实现? 案例在 CompletableFutureDemo.java
+
+#### 创建 CompletableFuture 对象
+
+创建CompletableFuture主要有四个静态方法:
+```
+//使用默认线程池
+static CompletableFuture<Void>  runAsync(Runnable runnable)
+static <U> CompletableFuture<U>  supplyAsync(Supplier<U> supplier)
+//可以指定线程池  
+static CompletableFuture<Void>  runAsync(Runnable runnable, Executor executor)
+static <U> CompletableFuture<U>  supplyAsync(Supplier<U> supplier, Executor executor)  
+```
+runAsync和supplyAsync的区别在于Runnable的run方法没有返回值, Supplier的get方法是有返回值的.
+而带Executor与不带Executor的区别在于可以执行线程池, **推荐使用带Executor的方法**, 因为默认的使用
+的是ForkJoinPool线程池, 默认创建的线程数是CPU的核数, 如果所有的CompletableFuture都共用一个线程池
+的话, 一些耗时的I/O操作可能会造成线程饥饿, 影响系统性能. 所以建议**根据不同的业务类型来创建不同的线程池,
+以避免相互干扰**
+
+创建CompletableFuture对象之后, 会自动地异步执行runnable.run()方法或者supplier.get()方法. 异步操作需要
+注意的问题有两个, 一个是异步线程什么时候结束, 另一个是异步线程的执行结果是什么, 以为实现了Future接口,
+所以可以使用isDone()方法判断是否结束, get()方法获取线程的执行结果
+
+#### 理解 CompletionStage 接口
+
+CompletableFuture接口实现了CompletionStage接口, CompletionStage的方法有很多, 如何理解? 站在分工
+的角度类比工作流, 根据任务的时序关系分类, 分为**串行关系, 并行关系与汇聚关系**, 前面的例子来说洗水壶和
+烧水是串行, 洗水壶烧水和洗茶壶茶杯是并行, 最后的取茶叶 + 烧水 -> 煮茶这就是汇聚关系.
+
+CompletionStage就可以清楚的描述这三种时序关系.
+
+##### 描述串行关系
+
+方法如下:
+```
+CompletionStage<R> thenApply(fn);
+CompletionStage<R> thenApplyAsync(fn);
+CompletionStage<Void> thenAccept(consumer);
+CompletionStage<Void> thenAcceptAsync(consumer);
+CompletionStage<Void> thenRun(action);
+CompletionStage<Void> thenRunAsync(action);
+CompletionStage<R> thenCompose(fn);
+CompletionStage<R> thenComposeAsync(fn);
+```
+thenApply, thenAccept, thenRun, thenCompose四个系列的接口,
+ - thenApply系列函数fn的类型是Function接口,R apply(T t), 这个方法既可以接收参数,也可以返回结果.
+ - thenAccept系列函数的consumer的类型是接口,void accept(T t), 只支持参数不返回值
+ - thenRun系列的函数是Runnable接口, void run()不支持参数也不返回值
+ - thenCompose系列的函数是会创建一个新的子线程, 结果结果和thenApply系列相同
+ 
+代码演示:
+```
+CompletableFuture<String> f0 = CompletableFuture
+                .supplyAsync(()->"Hello World")
+                .thenApply(s -> {
+                    return s + " QQ";
+                })
+                .thenApply(String::toUpperCase);
+// HELLO WORLD QQ
+System.out.println(f0.join());
+```
+##### 描述AND的汇聚关系
+
+方法如下:
+```
+CompletionStage<R> thenCombine(other, fn);
+CompletionStage<R> thenCombineAsync(other, fn);
+CompletionStage<Void> thenAcceptBoth(other, consumer);
+CompletionStage<Void> thenAcceptBothAsync(other, consumer);
+CompletionStage<Void> runAfterBoth(other, action);
+CompletionStage<Void> runAfterBothAsync(other, action);
+```
+thenCombine、thenAcceptBoth 和 runAfterBoth 系列的接口，
+这些接口的区别也是源自 fn(Function)、consumer(Consumer)、action(Runnable) 这三个核心参数不同。
+
+##### 描述OR汇聚关系
+
+方法如下:
+```
+CompletionStage applyToEither(other, fn);
+CompletionStage applyToEitherAsync(other, fn);
+CompletionStage acceptEither(other, consumer);
+CompletionStage acceptEitherAsync(other, consumer);
+CompletionStage runAfterEither(other, action);
+CompletionStage runAfterEitherAsync(other, action);
+```
+applyToEither、acceptEither 和 runAfterEither 系列的接口，
+这些接口的区别也是源自 fn、consumer、action 这三个核心参数不同。
+
+案例:
+```
+Random random = new Random();
+CompletableFuture<Long> f0 = CompletableFuture.supplyAsync(()->{
+    long num = random.nextInt(10);
+    System.out.println("T1: " + num);
+    sleep(num, TimeUnit.SECONDS);
+    return num;
+});
+CompletableFuture<Long> f1 = CompletableFuture.supplyAsync(()->{
+    long num = random.nextInt(10  );
+    System.out.println("T2: " + num);
+    sleep(num, TimeUnit.SECONDS);
+    return num;
+});
+CompletableFuture<Long> f3 = f0.applyToEither(f1, s -> s);
+// 结果肯定输出时间短的那一个
+System.out.println(f3.join());
+```
+
+#### 异常处理
+
+上面的fn, consumer, action的核心方法都**不允许抛出可检查异常, 但是却无法限制他们不抛出运行时异常.**
+```=
+CompletableFuture<Integer> 
+  f0 = CompletableFuture.
+    .supplyAsync(()->(7/0))
+    .thenApply(r->r*10);
+System.out.println(f0.join());
+```
+这如何处理呢?CompletionStage 接口给我们提供的方案非常简单，比 try{}catch{}还要简单，
+相关的方法如下，使用这些方法进行异常处理和串行操作是一样的，都支持链式编程方式。
+```
+CompletionStage exceptionally(fn);
+CompletionStage<R> whenComplete(consumer);
+CompletionStage<R> whenCompleteAsync(consumer);
+CompletionStage<R> handle(fn);
+CompletionStage<R> handleAsync(fn);
+```
+exceptionally() 的使用非常类似于 try{}catch{}中的 catch{}，但是由于支持链式编程方式，所以相对更简单。
+whenComplete() 和 handle() 系列方法就类似于 try{}finally{}中的 finally{}，
+无论是否发生异常都会执行 whenComplete() 中的回调函数 consumer 和 handle() 中的回调函数 fn。
+whenComplete() 和 handle() 的区别在于 whenComplete() 不支持返回结果，而 handle() 是支持返回结果的。
+
+案例:
+```
+
+CompletableFuture<Integer> 
+  f0 = CompletableFuture
+    .supplyAsync(()->7/0))
+    .thenApply(r->r*10)
+    .exceptionally(e->0);
+System.out.println(f0.join());
+```
+
+案例:
+```
+
+//采购订单
+PurchersOrder po;
+CompletableFuture<Boolean> cf = 
+  CompletableFuture.supplyAsync(()->{
+    //在数据库中查询规则
+    return findRuleByJdbc();
+  }).thenApply(r -> {
+    //规则校验
+    return check(po, r);
+});
+Boolean isOk = cf.join();
+```
+上面代码是创建采购订单的时候，需要校验一些规则，例如最大金额是和采购员级别相关的。利用CompletableFuture实现了校验功能,
+这么实现合理吗?
+
+答案是不合理, 原因有2:
+- 数据库查询规则和规则校验在业务层面是不同的, 所以应该根据业务类型来创建自己的线程池. 不应该混用, 容易造成线程饥饿
+- 规则校验没有处理异常, 返回r如果不存在或者存在异常的情况没有考虑.
+
+
+
+
+
+
+
+
 
 
