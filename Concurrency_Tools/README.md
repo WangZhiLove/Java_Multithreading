@@ -900,6 +900,53 @@ boolean compareAndSet(
 这四个仅仅用来执行累加操作, 相对于基本类型速度更快, 不支持compareAndsSet()方法.
 
 
+### Executor与线程池
+
+线程是一个重量级单位, 单位线程的创建于销毁需要调用操作系统底层API, 然后操作系统为线程分配资源,
+成本很高, 所以要避免频繁创建和销毁
+
+#### 线程池
+
+使用线程池就可以很好地避免这种频繁创建和销毁线程, 在Java中的线程池, 实际是**生产者-消费者模式**,
+***线程池的使用方是生产者, 线程池本身是消费者***.代码示例如类 MyThreadPoolExecutors.java
+
+维护了阻塞队列和工作线程组, 工作线程的大小有构造参数的poolSize决定, 用户通过调用execute()方法
+提交 Runnable 任务, execute内部仅仅是将线程放入阻塞队列中, 工作线程的作用就是消费阻塞队列的任务.
+
+#### Java中的线程池
+
+Java提供的线程池工具类非常强大, 最核心的就是ThreadPoolExecutor, 它的构造函数非常复杂, 如下:
+```
+
+ThreadPoolExecutor(
+  int corePoolSize,
+  int maximumPoolSize,
+  long keepAliveTime,
+  TimeUnit unit,
+  BlockingQueue<Runnable> workQueue,
+  ThreadFactory threadFactory,
+  RejectedExecutionHandler handler) 
+```
+每个参数的意义如下:
+- corePoolSize: 线程池保留的最小线程数
+- maximumPoolSize: 线程池创建的最大线程数(初始化HashSet<Worker> workers(包含线程池所有的工作线程))
+- keepAliveTime & unit: 用来判定一段时间内线程的繁忙程度来决定增减运行的线程
+- workQueue: 工作队列(上面模拟的阻塞队列)
+- threadFactory: 自定义如何创建线程, 包括赋予线程有意义的名字
+- handler: 自定义任务拒绝策略, 意思是所有线程工作, 这是提交任务, 线程池就会拒绝接受.
+    - CallerRunsPolicy: 提交任务的线程自己去执行
+    - AbortPolicy: 默认的拒绝策略, 会抛出throws RejectedExecutionException
+    - DiscardPolicy: 直接丢弃任务, 没有任何异常抛出
+    - DiscardOldestPolicy: 丢弃最老的任务, 最早进入工作队列中的任务丢弃.
+    
+要注意的是尽量使用ThreadPoolExecutor, 而不要使用Executors静态工厂类, 静态工厂类中默认都使用的是无边界的
+阻塞队列LinkedBlockingQueue, 高负载无界队列很容易造成OOM, OOM会导致所有的请求都无法处理, 所以建议使用有界队列.
+
+使用有界队列, 线程池默认的拒绝策略会 throw RejectedExecutionException 这是个运行时异常，对于运行时异常编译器
+并不强制 catch 它，所以开发人员很容易忽略。因此默认拒绝策略要慎重使用。如果线程池处理的任务非常重要，
+建议自定义自己的拒绝策略；并且在实际工作中，自定义的拒绝策略往往和降级策略配合使用。
+
+
 
 
 
