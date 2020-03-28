@@ -946,11 +946,161 @@ ThreadPoolExecutor(
 并不强制 catch 它，所以开发人员很容易忽略。因此默认拒绝策略要慎重使用。如果线程池处理的任务非常重要，
 建议自定义自己的拒绝策略；并且在实际工作中，自定义的拒绝策略往往和降级策略配合使用。
 
+### Future: 获取线程执行结果
+
+execute()方法虽然可以提交任务, 但是不能获取线程的执行结果.但是在
+更多的场景下, 我们需要获取线程执行结果, 这就需要用到 ThreadPoolExecutor 的另外的API了.
+
+#### 获取任务的执行结果
+
+Java通过 ThreadPoolExecutor 提供的三个submit()方法 和 FutureTask 工具类来支持获取任务执行结果的需求.
+```
+// 提交Runnable任务
+Future<?> submit(Runnable task);
+// 提交Callable任务
+<T> Future<T> submit(Callable<T> task);
+// 提交Runnable任务以及结果引用
+<T> Future<T> submit(Runnable task, T result)
+```
+返回值的Future接口, 有5个方法:
+```
+// 取消任务
+boolean cancel(boolean mayInterruptRunning);
+// 判断任务是否已取消
+boolean isCancelled();
+// 判断任务是否已结束
+boolean isDone();
+// 获取任务执行结果
+get();
+// 获取任务执行结果, 支持超时
+get(long timeout, TimeUnit unit);
+```
+
+3个submit方法的参数不同:
+- 第一个是提交 Runnable 任务, Runnable 的run方法是没有返回值的, 所以这个方法返回的
+Future仅可以用来断言任务已经结束, 相当于Thread.join().
+- 第二个提交Callable任务, Callable 的 call 方法是有返回的, 可以使用返回的 Future 
+的get方法来获取任务的执行结果
+- 第三个提交Runnable任务, 但是同时传递了结果引用, 也就是返回的Future对象的get方法的
+结果就是传递的result, 这也就意味着主子线程可以共享result这个数据. 使用案例:
+```
+ExecutorService executor 
+  = Executors.newFixedThreadPool(1);
+// 创建Result对象r
+Result r = new Result();
+r.setAAA(a);
+// 提交任务
+Future<Result> future = 
+  executor.submit(new Task(r), r);  
+Result fr = future.get();
+// 下面等式成立
+fr === r;
+fr.getAAA() === a;
+fr.getXXX() === x
+
+class Task implements Runnable{
+  Result r;
+  //通过构造函数传入result
+  Task(Result r){
+    this.r = r;
+  }
+  void run() {
+    //可以操作result
+    a = r.getAAA();
+    r.setXXX(x);
+  }
+}
+```
+
+前面说的Future是一个接口, FutureTask却是一个实在的工具类. 方法与前面的submit类似:
+```
+FutureTask(Callable<V> callable);
+FutureTask(Runnable runnable, V result);
+```
+
+FutureTask实现了Runnable接口和Future接口, 他的使用可以是作为任务提交给ThreadPoolExecutor
+去执行, 也可以直接传递给Thread去执行. 如下
+```
+
+// 创建FutureTask
+FutureTask<Integer> futureTask
+  = new FutureTask<>(()-> 1+2);
+// 创建线程池
+ExecutorService es = 
+  Executors.newCachedThreadPool();
+// 提交FutureTask 
+es.submit(futureTask);
+// 获取计算结果
+Integer result = futureTask.get();
 
 
+// 创建FutureTask
+FutureTask<Integer> futureTask
+  = new FutureTask<>(()-> 1+2);
+// 创建并启动线程
+Thread T1 = new Thread(futureTask);
+T1.start();
+// 获取计算结果
+Integer result = futureTask.get();
+```
 
+#### 使用Future来实现烧水泡茶
 
+最佳工序如图:
+![future](./image/future.png)
 
+如何实现, 代码如FutureTaskDemo.java
+
+来个案例: 小明要做一个询价应用，这个应用需要从三个电商询价，然后保存在自己的数据库里。
+核心示例代码如下所示，由于是串行的，所以性能很慢，你来试着优化一下吧
+```
+// 向电商S1询价，并保存
+r1 = getPriceByS1();
+save(r1);
+// 向电商S2询价，并保存
+r2 = getPriceByS2();
+save(r2);
+// 向电商S3询价，并保存
+r3 = getPriceByS3();
+save(r3);
+```
+优化后:
+```
+// 使用线程并发的方式可以解决, 3个FutureTask + 一个线程池就可以完美解决了
+FutureTask<Runnable> task1 = new FutureTask(() -> {
+    r1 = getPriceByS1();
+    save(r1);
+    return "success1";
+});
+FutureTask<Runnable> task2 = new FutureTask(() -> {
+    r2 = getPriceByS1();
+    save(r2);
+    return "success2";
+});
+FutureTask<Runnable> task3 = new FutureTask(() -> {
+    r3 = getPriceByS1();
+    save(r3);
+    return "success3";
+});
+ThreadPoolExecutor pool = new ThreadPoolExecutor(
+        1,
+        1,
+        1,
+        TimeUnit.HOURS,
+        new LinkedBlockingQueue(1),        
+        new ThreadFactory() {
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread t = new Thread(r);
+                t.setName("询价保存");
+                return t;
+            }
+        }
+    );
+pool.submit(task1);
+pool.submit(task2);
+pool.submit(task3);
+```
 
 
 
