@@ -1084,7 +1084,7 @@ FutureTask<Runnable> task3 = new FutureTask(() -> {
 });
 ThreadPoolExecutor pool = new ThreadPoolExecutor(
         1,
-        1,
+        3,
         1,
         TimeUnit.HOURS,
         new LinkedBlockingQueue(1),        
@@ -1287,11 +1287,234 @@ Boolean isOk = cf.join();
 - 数据库查询规则和规则校验在业务层面是不同的, 所以应该根据业务类型来创建自己的线程池. 不应该混用, 容易造成线程饥饿
 - 规则校验没有处理异常, 返回r如果不存在或者存在异常的情况没有考虑.
 
+### CompletionService : 批量执行异步任务
 
+用前面的询价保存来说, 询价是非常耗时的操作, 按照我们使用ThreadPoolExecutor和Future的代码可能如下:
+```
+ThreadPoolExecutor poolExecutor = new ThreadPoolExecutor(
+        1,
+        3,
+        1,
+        TimeUnit.SECONDS,
+        new LinkedBlockingQueue<>(3),
+        new ThreadFactory() {
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread t = new Thread(r);
+                t.setName("询价");
+                return t;
+            }
+        }
+);
+FutureTask<Integer> f0 = poolExecutor.submit(() -> getPriceByS1());
+FutureTask<Integer> f1 = poolExecutor.submit(() -> getPriceByS2());
+FutureTask<Integer> f2 = poolExecutor.submit(() -> getPriceByS3());
 
+ThreadPoolExecutor saveExecutor = new ThreadPoolExecutor(
+        1,
+        3,
+        1,
+        TimeUnit.SECONDS,
+        new LinkedBlockingQueue<>(3),
+        new ThreadFactory() {
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread t = new Thread(r);
+                t.setName("询价保存");
+                return t;
+            }
+        }
+);
 
+saveExecutor.submit(() -> {
+    try {
+        Integer integer = f0.get();
+        save(integer);
+    } catch (InterruptedException e) {
+        e.printStackTrace();
+    } catch (ExecutionException e) {
+        e.printStackTrace();
+    }
 
+});
+saveExecutor.submit(() -> {
+    try {
+        Integer integer = f1.get();
+        save(integer);
+    } catch (InterruptedException e) {
+        e.printStackTrace();
+    } catch (ExecutionException e) {
+        e.printStackTrace();
+    }
 
+});
+saveExecutor.submit(() -> {
+    try {
+        Integer integer = f2.get();
+        save(integer);
+    } catch (InterruptedException e) {
+        e.printStackTrace();
+    } catch (ExecutionException e) {
+        e.printStackTrace();
+    }
+
+});
+```
+这样其实可以实现, 但是 Java 提供了 CompletionService 专门用来做这种
+批量异步执行任务.
+
+#### CompletionService
+
+CompletionService 接口的实现类是 ExecutorCompletionService, 有两个构造方法:
+```
+ExecutorCompletionService(Executor executor)
+ExecutorCompletionService(Executor executor, BlockingQueue> completionQueue)
+```
+默认使用的的是无边界的 LinkedBlockingQueue, 接口提供的方法有5个:
+```
+Future<V> submit(Callable<V> task);
+Future<V> submit(Runnable task, V result);
+Future<V> take() throws InterruptedException;
+Future<V> poll();
+Future<V> poll(long timeout, TimeUnit unit) throws InterruptedException;
+```
+CompletionService 底层实现的原理其实是维护了一个阻塞队列, 而 take 和 poll 方法就是
+从阻塞队列中取值, take 和 poll 的区别在于 如果阻塞队列是空, take 方法会阻塞, 而 pull 方法
+会返回一个 null 值. 如何使用 CompletionService 来实现上面的询价保存呢?
+```
+CompletionService<Integer> cs = new ExecutorCompletionService<>(
+        new ThreadPoolExecutor(
+                3, 3, 1, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(3),
+                new ThreadFactory() {
+                    @Override
+                    public Thread newThread(Runnable r) {
+                        Thread thread = new Thread(r);
+                        thread.setName("询价");
+                        return thread;
+                    }
+                }
+        )
+);
+cs.submit(() -> {
+    return getPriceByS1();
+});
+cs.submit(() -> {
+    return getPriceByS2();
+});
+cs.submit(() -> {
+    return getPriceByS3();
+});
+ThreadPoolExecutor threadPoolExecutor = new ThreadPoolExecutor(
+        3, 3, 1, TimeUnit.SECONDS,
+        new LinkedBlockingQueue<>(3),
+        new ThreadFactory() {
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread thread = new Thread(r);
+                thread.setName("保存");
+                return thread;
+            }
+        }
+);
+for (int i = 0; i < 3; i++) {
+    Integer integer = cs.take().get();
+    threadPoolExecutor.execute(() -> save(integer));
+}
+```
+#### 利用 CompletionService 实现 Dubbo 中的 Forking Cluster
+
+Dubbo 中有一种叫做 Forking 的集群模式，这种集群模式下，**支持并行地调用多个查询服务，
+只要有一个成功返回结果，整个服务就可以返回了**。
+
+例如你需要提供一个地址转坐标的服务，为了保证该服务的高可用和性能，你可以并行地调用 
+3 个地图服务商的 API，然后只要有 1 个正确返回了结果 r，那么地址转坐标这个服务就可以直
+接返回 r 了。代码如下:
+```
+geocoder(addr) {
+    CompletionService<String> cs = new ExecutorCompletionService<>(
+            new ThreadPoolExecutor(
+                    3, 3, 1, TimeUnit.SECONDS,
+                    new LinkedBlockingQueue<>(3),
+                    new ThreadFactory() {
+                        @Override
+                        public Thread newThread(Runnable r) {
+                            Thread t = new Thread(r);
+                            t.setName("查询地图");
+                            return t;
+                        }
+                    }
+            )
+    );
+    // 保存Future对象
+    List<Future<String>> futures = new ArrayList<>();
+    //并行执行以下3个查询服务，
+    futures.add(cs.submit(() -> {
+        return eocoderByS1(addr);
+    }));
+    futures.add(cs.submit(() -> {
+        return eocoderByS2(addr);
+    }));
+    futures.add(cs.submit(() -> {
+        return eocoderByS3(addr);
+    }));
+    //只要r1,r2,r3有一个返回
+    //则返回
+    String result;
+    try {
+        for (int i = 0; i < 3; i++) {
+            String addr = cs.take().get();
+            // 判断是否获取地址
+            if(addr != null) {
+                result = addr;
+                break;
+            }
+
+        }
+    } finally {
+        // 已经获取结果, 中断并行任务, 取消所有任务
+        for (Future<String> future : futures) {
+            future.cancel(true);
+        }
+    }
+    return result;
+}
+```
+因为当任何一个有返回的话, 那就需要取消所有任务, 所以要是用 futures 来保存所有任务, 
+方便与后面取消所有任务. 那如果三个结果都要返回之后才返回呢? 用前面的询价保存案例, 现在
+要返回一个最低价格, 那应该如何做?
+```
+// 创建线程池
+ExecutorService executor = 
+  Executors.newFixedThreadPool(3);
+// 创建CompletionService
+CompletionService<Integer> cs = new 
+  ExecutorCompletionService<>(executor);
+// 异步向电商S1询价
+cs.submit(()->getPriceByS1());
+// 异步向电商S2询价
+cs.submit(()->getPriceByS2());
+// 异步向电商S3询价
+cs.submit(()->getPriceByS3());
+// 将询价结果异步保存到数据库
+// 并计算最低报价
+AtomicReference<Integer> m =
+  new AtomicReference<>(Integer.MAX_VALUE);
+for (int i=0; i<3; i++) {
+  executor.execute(()->{
+    Integer r = null;
+    try {
+      r = cs.take().get();
+    } catch (Exception e) {}
+    save(r);
+    m.set(Integer.min(m.get(), r));
+  });
+}
+return m;
+```
+这样做可以吗? 答案是不可以, 我觉得有两个方面
+- 不能确保三次询价都完成, 也就是说不能保证m就是最小值(可以使用CountDownLatch来解决)
+- 保存和查询用的同一个线程池, 建议根据业务类型来使用不同的线程池(创建不同的线程池)
 
 
 
